@@ -14,12 +14,6 @@ func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
 	etherMacString := strings.TrimSpace(arpReply.EtherMac.String())
 	ipString := strings.TrimSpace(arpReply.Ip.String())
 
-	if macString == "00:00:00:00:00:00" {
-		return 0, ""
-	} else if macString == "ff:ff:ff:ff:ff:ff" {
-		return 0, ""
-	}
-
 	if _, ok := MacMap[ipString]; !ok {
 		MacMap[ipString] = macString
 		macNew.Inc()
@@ -35,6 +29,7 @@ func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
 		macMismatches.Inc()
 		return 3, ""
 	}
+
 	return 0, ""
 }
 
