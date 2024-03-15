@@ -15,8 +15,8 @@ type ArpReply struct {
 	Ip       net.IP
 }
 
-func setupPcap(iface string, bpf string) (*pcap.Handle, error) {
-	handle, err := pcap.OpenLive(iface, 1600, true, pcap.BlockForever)
+func setupPcap(iface string, promisc bool, bpf string) (*pcap.Handle, error) {
+	handle, err := pcap.OpenLive(iface, 1600, promisc, pcap.BlockForever)
 	if err != nil {
 		return nil, err
 	}

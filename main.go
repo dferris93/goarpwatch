@@ -70,11 +70,14 @@ func main() {
 	flag.StringVar(&alertCmd, "alertcmd", "", "Specify an alert command to run when an ARP reply is captured")
 	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use.  It will be anded with 'arp'")
 	flag.StringVar(&dbpath, "dbpath", "./macs.db", "Specify the path to the database file")
+	promisc := flag.Bool("promisc", false, "Enable promiscuous mode")
 	flag.Parse()
 
 	log.Printf("Starting up on interface %s\n", iface)
 	log.Printf("Alert command: %s\n", alertCmd)
 	log.Printf("Setting up db at %s\n", dbpath)
+	log.Printf("BPF filter: %s\n", bpf)
+	log.Printf("Promiscuous mode: %t\n", *promisc)
 	db, err := setupDB(dbpath)
 	if err != nil {
 		log.Fatal(err)
@@ -90,7 +93,7 @@ func main() {
 	packetChannel := make(chan ArpReply)
 	replyChannel := make(chan ArpReply)
 
-	pcapHandle, err := setupPcap(iface, bpf)
+	pcapHandle, err := setupPcap(iface, *promisc, bpf)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -101,8 +104,7 @@ func main() {
 	go capture(pcapHandle, packetChannel)
 	go saveAll(db, replyChannel)
 
-	for {
-		arpReply := <-packetChannel
+	for arpReply := range packetChannel {
 		arpReplies.Inc()
 		if localhost.Contains(arpReply.Ip) {
 			continue
