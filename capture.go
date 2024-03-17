@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"log"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -13,9 +14,15 @@ type ArpReply struct {
 	Mac      net.HardwareAddr
 	EtherMac net.HardwareAddr
 	Ip       net.IP
+	Iface    string
 }
 
-func setupPcap(iface string, promisc bool, bpf string) (*pcap.Handle, error) {
+type pcapInterface struct {
+	iface   string
+	handle  *pcap.Handle
+}
+
+func setupPcap(iface string, promisc bool, bpf string) (*pcapInterface, error) {
 	handle, err := pcap.OpenLive(iface, 1600, promisc, pcap.BlockForever)
 	if err != nil {
 		return nil, err
@@ -30,12 +37,14 @@ func setupPcap(iface string, promisc bool, bpf string) (*pcap.Handle, error) {
 		return nil, err
 	}
 
-	return handle, nil
+	return &pcapInterface{iface: iface, handle: handle}, nil
 }
 
-func capture(handle *pcap.Handle, packetChannel chan ArpReply) {
+func capture(pcapInterface pcapInterface, packetChannel chan ArpReply) {
+	handle := pcapInterface.handle
+	iface := pcapInterface.iface
 	defer handle.Close()
-
+	log.Printf("beginning capture on %s\n",iface)
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packetSource.Packets() {
 		ethernetlayer := packet.Layer(layers.LayerTypeEthernet)
@@ -46,7 +55,7 @@ func capture(handle *pcap.Handle, packetChannel chan ArpReply) {
 				ethermac := net.HardwareAddr(ethernetlayer.(*layers.Ethernet).SrcMAC)
 				mac := net.HardwareAddr(arp.SourceHwAddress)
 				ip := net.IP(arp.SourceProtAddress)
-				packetChannel <- ArpReply{Mac: mac, Ip: ip, EtherMac: ethermac}
+				packetChannel <- ArpReply{Mac: mac, Ip: ip, EtherMac: ethermac, Iface: iface}
 			}
 		}
 	}

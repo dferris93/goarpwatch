@@ -36,11 +36,11 @@ func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
 func runAlert(alertCmd string, status int, reply ArpReply, old string) error {
 	var args []string
 	if status == 1 {
-		args = []string{"new", reply.Ip.String(), reply.Mac.String()}
+		args = []string{"new", reply.Ip.String(), reply.Mac.String(), reply.Iface}
 	} else if status == 2 {
-		args = []string{"changed", reply.Ip.String(), reply.Mac.String(), old}
+		args = []string{"changed", reply.Ip.String(), reply.Mac.String(), reply.Iface, old}
 	} else if status == 3 {
-		args = []string{"mismatch", reply.Ip.String(), reply.Mac.String(), reply.EtherMac.String()}
+		args = []string{"mismatch", reply.Ip.String(), reply.Mac.String(), reply.Iface, reply.EtherMac.String()}
 	}
 
 	cmd := exec.Command(alertCmd, args...)
@@ -60,20 +60,22 @@ func runAlert(alertCmd string, status int, reply ArpReply, old string) error {
 }
 
 func main() {
-	var iface string
+	var ifaces string
 	var alertCmd string
 	var bpf string
 	var dbpath string
 
 	// Define flags
-	flag.StringVar(&iface, "interface", "eth0", "Specify the network interface to listen on")
+	flag.StringVar(&ifaces, "interface", "eth0", "Specify the network interfaces to listen on, separated by commas")
 	flag.StringVar(&alertCmd, "alertcmd", "", "Specify an alert command to run when an ARP reply is captured")
-	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use.  It will be anded with 'arp'")
+	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use. It will be anded with 'arp'")
 	flag.StringVar(&dbpath, "dbpath", "./macs.db", "Specify the path to the database file")
 	promisc := flag.Bool("promisc", false, "Enable promiscuous mode")
 	flag.Parse()
 
-	log.Printf("Starting up on interface %s\n", iface)
+	interfaceList := strings.Split(ifaces, ",")
+
+	log.Printf("Starting up on interfaces %v\n", interfaceList)
 	log.Printf("Alert command: %s\n", alertCmd)
 	log.Printf("Setting up db at %s\n", dbpath)
 	log.Printf("BPF filter: %s\n", bpf)
@@ -93,16 +95,18 @@ func main() {
 	packetChannel := make(chan ArpReply)
 	replyChannel := make(chan ArpReply)
 
-	pcapHandle, err := setupPcap(iface, *promisc, bpf)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	_, localhost, _ := net.ParseCIDR("127.0.0.0/8")
 
 	go servePrometheus()
-	go capture(pcapHandle, packetChannel)
 	go saveAll(db, replyChannel)
+
+	for _, iface := range interfaceList {
+		pcapInterface, err := setupPcap(iface, *promisc, bpf)
+		if err != nil {
+			log.Fatalf("Error setting up pcap on interface %s: %v\n", iface, err)
+		}
+		go capture(*pcapInterface, packetChannel)
+	}
 
 	for arpReply := range packetChannel {
 		arpReplies.Inc()
