@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
-	macString := strings.TrimSpace(arpReply.Mac.String())
-	etherMacString := strings.TrimSpace(arpReply.EtherMac.String())
-	ipString := strings.TrimSpace(arpReply.Ip.String())
+func checkMac(Reply Reply, MacMap map[string]string) (int, string) {
+	macString := strings.TrimSpace(Reply.Mac.String())
+	etherMacString := strings.TrimSpace(Reply.EtherMac.String())
+	ipString := strings.TrimSpace(Reply.Ip.String())
 
 	if _, ok := MacMap[ipString]; !ok {
 		MacMap[ipString] = macString
@@ -25,7 +25,7 @@ func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
 		macChanges.Inc()
 		return 2, MacMap[ipString]
 	} else if macString != etherMacString {
-		log.Print("ALERT! ARP MAC address does not match Ethernet MAC address\n")
+		log.Printf("ALERT! ARP MAC address does not match Ethernet MAC address %s %s %s\n", ipString, macString, etherMacString)
 		macMismatches.Inc()
 		return 3, ""
 	}
@@ -33,7 +33,7 @@ func checkMac(arpReply ArpReply, MacMap map[string]string) (int, string) {
 	return 0, ""
 }
 
-func runAlert(alertCmd string, status int, reply ArpReply, old string) error {
+func runAlert(alertCmd string, status int, reply Reply, old string) error {
 	var args []string
 	if status == 1 {
 		args = []string{"new", reply.Ip.String(), reply.Mac.String(), reply.Iface}
@@ -92,8 +92,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	packetChannel := make(chan ArpReply)
-	replyChannel := make(chan ArpReply)
+	packetChannel := make(chan Reply)
+	replyChannel := make(chan Reply)
 
 	_, localhost, _ := net.ParseCIDR("127.0.0.0/8")
 
@@ -106,18 +106,25 @@ func main() {
 			log.Fatalf("Error setting up pcap on interface %s: %v\n", iface, err)
 		}
 		go capture(*pcapInterface, packetChannel)
+		go captureNdp(*pcapInterface, packetChannel)
 	}
 
-	for arpReply := range packetChannel {
-		arpReplies.Inc()
-		if localhost.Contains(arpReply.Ip) {
+	for reply := range packetChannel {
+		if localhost.Contains(reply.Ip) {
 			continue
 		}
-		status, old := checkMac(arpReply, MacMap)
+
+		if reply.IPVer == 6 {
+			ndpReplies.Inc()
+		} else if reply.IPVer != 4 {
+			arpReplies.Inc()
+		}
+
+		status, old := checkMac(reply, MacMap)
 		if status != 0 {
-			replyChannel <- arpReply
+			replyChannel <- reply
 			if alertCmd != "" {
-				err := runAlert(alertCmd, status, arpReply, old)
+				err := runAlert(alertCmd, status, reply, old)
 				if err != nil {
 					log.Printf("Error running alert command: %s\n", err)
 				}

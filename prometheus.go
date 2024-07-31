@@ -35,6 +35,12 @@ var (
 			Help: "arp replies",
 		},
 	)
+	ndpReplies = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ndp_replies_total",
+			Help: "ndp replies",
+		},
+	)
 )
 
 func servePrometheus() {

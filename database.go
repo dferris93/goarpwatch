@@ -54,7 +54,7 @@ func loadAll(db *sql.DB) (map[string]string, error) {
 	return macs, nil
 }
 
-func saveAll(db *sql.DB, replyChannel chan ArpReply) {
+func saveAll(db *sql.DB, replyChannel chan Reply) {
 	for macs := range replyChannel {
 		tx, err := db.Begin()
 		if err != nil {
