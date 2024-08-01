@@ -71,6 +71,7 @@ func main() {
 	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use. It will be anded with 'arp'")
 	flag.StringVar(&dbpath, "dbpath", "./macs.db", "Specify the path to the database file")
 	promisc := flag.Bool("promisc", false, "Enable promiscuous mode")
+	checkNDP := flag.Bool("ndp", false, "Check for IPv6 NDP packets")
 	flag.Parse()
 
 	interfaceList := strings.Split(ifaces, ",")
@@ -106,7 +107,9 @@ func main() {
 			log.Fatalf("Error setting up pcap on interface %s: %v\n", iface, err)
 		}
 		go capture(*pcapInterface, packetChannel)
-		go captureNdp(*pcapInterface, packetChannel)
+		if *checkNDP {
+			go captureNdp(*pcapInterface, packetChannel)
+		}
 	}
 
 	for reply := range packetChannel {
