@@ -4,8 +4,8 @@ go 1.22.1
 
 require (
 	github.com/google/gopacket v1.1.19
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/prometheus/client_golang v1.19.0
+	go.etcd.io/bbolt v1.3.10
 )
 
 require (

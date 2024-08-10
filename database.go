@@ -1,14 +1,15 @@
 package main
 
 import (
-	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
 	"log"
-	"path/filepath"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"go.etcd.io/bbolt"
 )
 
-func setupDB(dbpath string) (*sql.DB, error){
+func setupDB(dbpath string) (*bbolt.DB, error){
 	abspath, err := filepath.Abs(dbpath)
 	if err != nil {
 		return nil, err
@@ -22,12 +23,7 @@ func setupDB(dbpath string) (*sql.DB, error){
 			return nil, err
 		}
 	}
-	db, err := sql.Open("sqlite3", dbpath)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS macs (mac TEXT PRIMARY KEY, ip TEXT)")
+	db, err := bbolt.Open(abspath, 0600, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -35,46 +31,44 @@ func setupDB(dbpath string) (*sql.DB, error){
 	return db, nil
 }
 
-func loadAll(db *sql.DB) (map[string]string, error) {
-	rows, err := db.Query("SELECT mac, ip FROM macs")
+func loadAll(db *bbolt.DB) (map[string]string, error) {
+	macs := make(map[string]string)
+	err := db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("macs"))
+		if b == nil {
+			return nil
+		}
+		b.ForEach(func(k, v []byte) error {
+			macs[string(k)] = string(v)
+			return nil
+		})
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer rows.Close()
-
-	macs := make(map[string]string)
-	for rows.Next() {
-		var mac, ip string
-		err := rows.Scan(&mac, &ip)
-		if err != nil {
-			return nil, err
-		}
-		macs[ip] = mac
 	}
 	return macs, nil
 }
 
-func saveAll(db *sql.DB, replyChannel chan Reply) {
+func saveAll(db *bbolt.DB, replyChannel chan Reply) {
 	for macs := range replyChannel {
-		tx, err := db.Begin()
+		err := db.Update(func(tx *bbolt.Tx) error {
+			var b *bbolt.Bucket
+			var err error
+			b, err = tx.CreateBucketIfNotExists([]byte("macs"))
+			if err != nil {
+				return err
+			} 
+			mac := strings.TrimSpace(macs.Mac.String())
+			ipAddr := strings.TrimSpace(macs.Ip.String())
+			err = b.Put([]byte(ipAddr), []byte(mac))
+			if err != nil {
+				return err
+			}
+			return nil
+		})
 		if err != nil {
-			log.Printf("db error: %s\n", err)
-		}
-
-		stmt, err := tx.Prepare("INSERT OR REPLACE INTO macs(mac, ip) VALUES(?, ?)")
-		if err != nil {
-			log.Printf("db error: %s\n", err)
-		}
-		defer stmt.Close()
-
-		_, err = stmt.Exec(macs.Mac.String(), macs.Ip.String())
-		if err != nil {
-			log.Printf("db error: %s\n", err)
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			log.Printf("db error: %s\n", err)
+			log.Printf("error saving macs: %v\n", err)
 		}
 	}
 }

@@ -93,6 +93,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	for k, v := range MacMap {
+		log.Printf("Loaded %s %s\n", k, v)
+	}
+
+
 	packetChannel := make(chan Reply)
 	replyChannel := make(chan Reply)
 
@@ -124,8 +129,11 @@ func main() {
 		}
 
 		status, old := checkMac(reply, MacMap)
+
 		if status != 0 {
-			replyChannel <- reply
+			if status == 1 || status == 2 {
+				replyChannel <- reply
+			}
 			if alertCmd != "" {
 				err := runAlert(alertCmd, status, reply, old)
 				if err != nil {
