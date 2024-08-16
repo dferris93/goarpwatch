@@ -36,6 +36,7 @@ func checkMac(Reply Reply, MacMap map[string]string) (int, string) {
 func runAlert(alertCmd string, status int, reply Reply, old string) error {
 	var args []string
 	if status == 1 {
+
 		args = []string{"new", reply.Ip.String(), reply.Mac.String(), reply.Iface}
 	} else if status == 2 {
 		args = []string{"changed", reply.Ip.String(), reply.Mac.String(), reply.Iface, old}
@@ -64,8 +65,8 @@ func main() {
 	var alertCmd string
 	var bpf string
 	var dbpath string
+	var ouiPath string
 
-	// Define flags
 	flag.StringVar(&ifaces, "interface", "eth0", "Specify the network interfaces to listen on, separated by commas")
 	flag.StringVar(&alertCmd, "alertcmd", "", "Specify an alert command to run when an ARP reply is captured")
 	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use. It will be anded with 'arp'")
@@ -79,8 +80,11 @@ func main() {
 	log.Printf("Starting up on interfaces %v\n", interfaceList)
 	log.Printf("Alert command: %s\n", alertCmd)
 	log.Printf("Setting up db at %s\n", dbpath)
+	log.Printf("Loading OUI DB at %s\n", ouiPath)
 	log.Printf("BPF filter: %s\n", bpf)
 	log.Printf("Promiscuous mode: %t\n", *promisc)
+
+
 	db, err := setupDB(dbpath)
 	if err != nil {
 		log.Fatal(err)
@@ -102,6 +106,7 @@ func main() {
 	replyChannel := make(chan Reply)
 
 	_, localhost, _ := net.ParseCIDR("127.0.0.0/8")
+	_, ipv6localhost, _ := net.ParseCIDR("::1/128")
 
 	go servePrometheus()
 	go saveAll(db, replyChannel)
@@ -118,7 +123,7 @@ func main() {
 	}
 
 	for reply := range packetChannel {
-		if localhost.Contains(reply.Ip) {
+		if localhost.Contains(reply.Ip) || ipv6localhost.Contains(reply.Ip) || reply.Ip.String() == "::" {
 			continue
 		}
 
