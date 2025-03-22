@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"go.etcd.io/bbolt"
 	"log"
 	"net"
 	"os/exec"
@@ -20,10 +21,11 @@ func checkMac(Reply Reply, MacMap map[string]string) (int, string) {
 		log.Printf("First time seeing %s at %s\n", ipString, macString)
 		return 1, ""
 	} else if MacMap[ipString] != macString {
-		log.Printf("ALERT! %s has a new MAC address: %s (was %s)\n", ipString, macString, MacMap[ipString])
+		old := MacMap[ipString]
+		log.Printf("ALERT! %s has a new MAC address: %s (was %s)\n", ipString, macString, old)
 		MacMap[ipString] = macString
 		macChanges.Inc()
-		return 2, MacMap[ipString]
+		return 2, old
 	} else if macString != etherMacString {
 		log.Printf("ALERT! ARP MAC address does not match Ethernet MAC address %s %s %s\n", ipString, macString, etherMacString)
 		macMismatches.Inc()
@@ -33,10 +35,9 @@ func checkMac(Reply Reply, MacMap map[string]string) (int, string) {
 	return 0, ""
 }
 
-func runAlert(alertCmd string, status int, reply Reply, old string) error {
+func runAlert(alertCmd string, status int, reply Reply, old string) {
 	var args []string
 	if status == 1 {
-
 		args = []string{"new", reply.Ip.String(), reply.Mac.String(), reply.Iface}
 	} else if status == 2 {
 		args = []string{"changed", reply.Ip.String(), reply.Mac.String(), reply.Iface, old}
@@ -47,17 +48,17 @@ func runAlert(alertCmd string, status int, reply Reply, old string) error {
 	cmd := exec.Command(alertCmd, args...)
 	cmd.Stderr = &bytes.Buffer{}
 	cmd.Stdout = &bytes.Buffer{}
+	log.Printf("Running command: %s\n", cmd.Args)
 	err := cmd.Run()
+	stderr := cmd.Stderr.(*bytes.Buffer).String()
+	stdout := cmd.Stdout.(*bytes.Buffer).String()
 	if err != nil {
-		stderr := cmd.Stderr.(*bytes.Buffer).String()
 		log.Printf("Error running alert command: %s\n", err)
-		log.Printf("%s\n", stderr)
-		return err
+		log.Printf("stdout: %s\n", stdout)
+		log.Printf("stderr: %s\n", stderr)
 	}
 	log.Printf("Alert command ran successfully\n")
-	stdout := cmd.Stdout.(*bytes.Buffer).String()
 	log.Printf("%s\n", stdout)
-	return nil
 }
 
 func main() {
@@ -65,7 +66,6 @@ func main() {
 	var alertCmd string
 	var bpf string
 	var dbpath string
-	var ouiPath string
 
 	flag.StringVar(&ifaces, "interface", "eth0", "Specify the network interfaces to listen on, separated by commas")
 	flag.StringVar(&alertCmd, "alertcmd", "", "Specify an alert command to run when an ARP reply is captured")
@@ -80,27 +80,25 @@ func main() {
 	log.Printf("Starting up on interfaces %v\n", interfaceList)
 	log.Printf("Alert command: %s\n", alertCmd)
 	log.Printf("Setting up db at %s\n", dbpath)
-	log.Printf("Loading OUI DB at %s\n", ouiPath)
 	log.Printf("BPF filter: %s\n", bpf)
 	log.Printf("Promiscuous mode: %t\n", *promisc)
-
 
 	db, err := setupDB(dbpath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer func(db *bbolt.DB) {
+		err := db.Close()
+		if err != nil {
+			log.Fatalf("Error closing db: %v\n", err)
+		}
+	}(db)
 
 	log.Printf("Loading all MACs from db\n")
 	MacMap, err := loadAll(db)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	for k, v := range MacMap {
-		log.Printf("Loaded %s %s\n", k, v)
-	}
-
 
 	packetChannel := make(chan Reply)
 	replyChannel := make(chan Reply)
@@ -140,10 +138,7 @@ func main() {
 				replyChannel <- reply
 			}
 			if alertCmd != "" {
-				err := runAlert(alertCmd, status, reply, old)
-				if err != nil {
-					log.Printf("Error running alert command: %s\n", err)
-				}
+				go runAlert(alertCmd, status, reply, old)
 			}
 		}
 	}

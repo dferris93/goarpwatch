@@ -1,3 +1,4 @@
 goarpwatch
 macs.db
 deploy.sh
+vendor/*
