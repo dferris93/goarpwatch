@@ -66,11 +66,13 @@ func main() {
 	var alertCmd string
 	var bpf string
 	var dbpath string
+	var listenport string
 
 	flag.StringVar(&ifaces, "interface", "eth0", "Specify the network interfaces to listen on, separated by commas")
 	flag.StringVar(&alertCmd, "alertcmd", "", "Specify an alert command to run when an ARP reply is captured")
 	flag.StringVar(&bpf, "bpf", "", "Specify a BPF filter to use. It will be anded with 'arp'")
 	flag.StringVar(&dbpath, "dbpath", "./macs.db", "Specify the path to the database file")
+	flag.StringVar(&listenport, "listenport", ":2114", "Specify the listen port for prometheus")
 	promisc := flag.Bool("promisc", false, "Enable promiscuous mode")
 	checkNDP := flag.Bool("ndp", false, "Check for IPv6 NDP packets")
 	flag.Parse()
@@ -82,6 +84,7 @@ func main() {
 	log.Printf("Setting up db at %s\n", dbpath)
 	log.Printf("BPF filter: %s\n", bpf)
 	log.Printf("Promiscuous mode: %t\n", *promisc)
+	log.Printf("Listen on: %s\n", listenport)
 
 	db, err := setupDB(dbpath)
 	if err != nil {
@@ -106,7 +109,7 @@ func main() {
 	_, localhost, _ := net.ParseCIDR("127.0.0.0/8")
 	_, ipv6localhost, _ := net.ParseCIDR("::1/128")
 
-	go servePrometheus()
+	go servePrometheus(listenport)
 	go saveAll(db, replyChannel)
 
 	for _, iface := range interfaceList {

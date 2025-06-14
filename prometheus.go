@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -43,11 +42,11 @@ var (
 	)
 )
 
-func servePrometheus() {
+func servePrometheus(listenport string) {
 	prometheus.MustRegister(macMismatches)
 	prometheus.MustRegister(macChanges)
 	prometheus.MustRegister(macNew)
 	prometheus.MustRegister(arpReplies)
 	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", "2114"), nil))
+	log.Fatal(http.ListenAndServe(listenport, nil))
 }
