@@ -3,3 +3,5 @@ goarpwatch is a somewhat simplistic replacement for the arpwatch command.  It su
 goarpwatch uses bolt to store ip / mac pairs.  The database is read into memory when goarpwatch starts and all operations are done from the in memory cache.
 
 A few prometheus metrics are exported so you can see what's going on.
+
+Build note: goarpwatch links against libpcap. Because libpcap differs by OS, you need to build on the same OS you plan to run on (cross-compiling is not supported).
