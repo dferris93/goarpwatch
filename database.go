@@ -9,7 +9,7 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-func setupDB(dbpath string) (*bbolt.DB, error){
+func setupDB(dbpath string) (*bbolt.DB, error) {
 	abspath, err := filepath.Abs(dbpath)
 	if err != nil {
 		return nil, err
@@ -58,10 +58,10 @@ func saveAll(db *bbolt.DB, replyChannel chan Reply) {
 			b, err = tx.CreateBucketIfNotExists([]byte("macs"))
 			if err != nil {
 				return err
-			} 
+			}
 			mac := strings.TrimSpace(macs.Mac.String())
-			ipAddr := strings.TrimSpace(macs.Ip.String())
-			err = b.Put([]byte(ipAddr), []byte(mac))
+			key := macKey(macs)
+			err = b.Put([]byte(key), []byte(mac))
 			if err != nil {
 				return err
 			}

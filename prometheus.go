@@ -8,8 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-
-var (                                                                                                                                                         
+var (
 	macMismatches = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "mac_mismatches_total",
@@ -17,7 +16,7 @@ var (
 		},
 	)
 	macChanges = prometheus.NewCounter(
-		prometheus.CounterOpts{	
+		prometheus.CounterOpts{
 			Name: "mac_changes_total",
 			Help: "mac changes",
 		},
@@ -47,6 +46,7 @@ func servePrometheus(listenport string) {
 	prometheus.MustRegister(macChanges)
 	prometheus.MustRegister(macNew)
 	prometheus.MustRegister(arpReplies)
+	prometheus.MustRegister(ndpReplies)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(listenport, nil))
 }
