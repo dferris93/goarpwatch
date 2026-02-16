@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -39,14 +43,47 @@ var (
 			Help: "ndp replies",
 		},
 	)
+	alertQueueDrops = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "alert_queue_drops_total",
+			Help: "alerts dropped due to queue saturation",
+		},
+	)
 )
 
-func servePrometheus(listenport string) {
-	prometheus.MustRegister(macMismatches)
-	prometheus.MustRegister(macChanges)
-	prometheus.MustRegister(macNew)
-	prometheus.MustRegister(arpReplies)
-	prometheus.MustRegister(ndpReplies)
-	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(listenport, nil))
+var registerMetricsOnce sync.Once
+
+func registerMetrics() {
+	registerMetricsOnce.Do(func() {
+		prometheus.MustRegister(macMismatches)
+		prometheus.MustRegister(macChanges)
+		prometheus.MustRegister(macNew)
+		prometheus.MustRegister(arpReplies)
+		prometheus.MustRegister(ndpReplies)
+		prometheus.MustRegister(alertQueueDrops)
+	})
+}
+
+func servePrometheus(ctx context.Context, listenport string) {
+	registerMetrics()
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	server := &http.Server{
+		Addr:    listenport,
+		Handler: mux,
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("Error shutting down prometheus server: %v\n", err)
+		}
+	}()
+
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("Prometheus server error: %v\n", err)
+	}
 }

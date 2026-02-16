@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.etcd.io/bbolt"
 )
@@ -50,25 +51,60 @@ func loadAll(db *bbolt.DB) (map[string]string, error) {
 	return macs, nil
 }
 
-func saveAll(db *bbolt.DB, replyChannel chan Reply) {
-	for macs := range replyChannel {
+func saveAll(db *bbolt.DB, replyChannel <-chan Reply, batchSize int, flushInterval time.Duration) {
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	if flushInterval <= 0 {
+		flushInterval = time.Second
+	}
+
+	pending := make([]Reply, 0, batchSize)
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+
+		updates := make(map[string]string, len(pending))
+		for _, macs := range pending {
+			key := macKey(macs)
+			updates[key] = strings.TrimSpace(macs.Mac.String())
+		}
+
 		err := db.Update(func(tx *bbolt.Tx) error {
-			var b *bbolt.Bucket
-			var err error
-			b, err = tx.CreateBucketIfNotExists([]byte("macs"))
+			b, err := tx.CreateBucketIfNotExists([]byte("macs"))
 			if err != nil {
 				return err
 			}
-			mac := strings.TrimSpace(macs.Mac.String())
-			key := macKey(macs)
-			err = b.Put([]byte(key), []byte(mac))
-			if err != nil {
-				return err
+			for key, mac := range updates {
+				if err := b.Put([]byte(key), []byte(mac)); err != nil {
+					return err
+				}
 			}
 			return nil
 		})
 		if err != nil {
 			log.Printf("error saving macs: %v\n", err)
+		}
+		pending = pending[:0]
+	}
+
+	for {
+		select {
+		case macs, ok := <-replyChannel:
+			if !ok {
+				flush()
+				return
+			}
+			pending = append(pending, macs)
+			if len(pending) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
 		}
 	}
 }

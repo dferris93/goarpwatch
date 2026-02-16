@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -46,10 +48,36 @@ func setupPcap(iface string, promisc bool, bpf string, enableNDP bool) (*pcapInt
 	return &pcapInterface{iface: iface, handle: handle}, nil
 }
 
-func capturePackets(pcapInterface pcapInterface, packetChannel chan Reply, enableNDP bool) {
+func capturePackets(ctx context.Context, pcapInterface pcapInterface, packetChannel chan<- Reply, enableNDP bool) {
 	handle := pcapInterface.handle
 	iface := pcapInterface.iface
-	defer handle.Close()
+	var closeOnce sync.Once
+	closeHandle := func() {
+		closeOnce.Do(func() {
+			handle.Close()
+		})
+	}
+	defer closeHandle()
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			closeHandle()
+		case <-done:
+		}
+	}()
+
+	sendReply := func(reply Reply) bool {
+		select {
+		case packetChannel <- reply:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	log.Printf("beginning capture on %s\n", iface)
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packetSource.Packets() {
@@ -64,7 +92,9 @@ func capturePackets(pcapInterface pcapInterface, packetChannel chan Reply, enabl
 				ethermac := net.HardwareAddr(ethernetlayer.(*layers.Ethernet).SrcMAC)
 				mac := net.HardwareAddr(arp.SourceHwAddress)
 				ip := net.IP(arp.SourceProtAddress)
-				packetChannel <- Reply{Mac: mac, Ip: ip, EtherMac: ethermac, Iface: iface, IPVer: 4}
+				if !sendReply(Reply{Mac: mac, Ip: ip, EtherMac: ethermac, Iface: iface, IPVer: 4}) {
+					return
+				}
 			}
 		}
 		if !enableNDP {
@@ -72,7 +102,9 @@ func capturePackets(pcapInterface pcapInterface, packetChannel chan Reply, enabl
 		}
 		reply, ok := ndpPacketToReply(packet, iface)
 		if ok {
-			packetChannel <- reply
+			if !sendReply(reply) {
+				return
+			}
 		}
 	}
 }
